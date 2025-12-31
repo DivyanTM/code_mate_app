@@ -71,6 +71,15 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
               // TODO: Implement filter bottom sheet
             },
           ),
+          IconButton(
+            icon: Icon(
+              Icons.message_outlined,
+              color: theme.colorScheme.primary,
+            ),
+            onPressed: () {
+              // TODO: Implement filter bottom sheet
+            },
+          ),
           const SizedBox(width: 8),
         ],
       ),
@@ -138,8 +147,8 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
             label: "Teams",
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.chat_rounded),
-            label: "Chats",
+            icon: Icon(Icons.work_outline_rounded),
+            label: "Projects",
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.person_outline_rounded),
@@ -162,8 +171,9 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
         height: 65,
         width: 65,
         decoration: BoxDecoration(
-          color: theme.colorScheme.surface,
+          color: color,
           shape: BoxShape.circle,
+          border: Border.all(color: Colors.black.withOpacity(0.2), width: 1),
           boxShadow: [
             BoxShadow(
               color: color.withOpacity(0.15),
@@ -172,7 +182,7 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
             ),
           ],
         ),
-        child: Icon(icon, color: color, size: 28),
+        child: Icon(icon, color: Colors.white, size: 28),
       ),
     );
   }
