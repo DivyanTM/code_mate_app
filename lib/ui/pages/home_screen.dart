@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:code_mate/ui/widgets/dev_match_card.dart';
 import 'package:flutter_card_swiper/flutter_card_swiper.dart';
+import 'package:code_mate/ui/pages/team_list_screen.dart';
 
 class DiscoveryHomeScreen extends StatefulWidget {
   const DiscoveryHomeScreen({super.key});
@@ -131,7 +132,15 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
       // ADDED: Bottom Navigation Bar
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
+        onTap: (index) => {
+          setState(() => _currentIndex = index),
+          if(index==1){
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => TeamsListScreen()),
+            )
+          }
+        },
         type: BottomNavigationBarType.fixed,
         selectedItemColor: theme.colorScheme.primary,
         unselectedItemColor: theme.colorScheme.onSurface.withOpacity(0.4),
