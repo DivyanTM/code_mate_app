@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:code_mate/ui/widgets/dev_match_card.dart';
 import 'package:flutter_card_swiper/flutter_card_swiper.dart';
 import 'package:code_mate/ui/pages/team_list_screen.dart';
+import 'package:code_mate/ui/pages/project_list_screen.dart';
 
 class DiscoveryHomeScreen extends StatefulWidget {
   const DiscoveryHomeScreen({super.key});
@@ -134,12 +135,23 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
         currentIndex: _currentIndex,
         onTap: (index) => {
           setState(() => _currentIndex = index),
-          if(index==1){
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => TeamsListScreen()),
-            )
-          }
+          if (index == 1)
+            {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => TeamsListScreen()),
+              ),
+            }
+          else if (index == 2)
+            {
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(SnackBar(content: Text("clicked projects"))),
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => ProjectsListScreen()),
+              ),
+            },
         },
         type: BottomNavigationBarType.fixed,
         selectedItemColor: theme.colorScheme.primary,

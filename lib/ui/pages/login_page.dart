@@ -16,20 +16,20 @@ class LoginScreen extends StatelessWidget {
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               const SizedBox(height: 40),
               // Logo Section
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Image.asset(
-                    'assets/images/coding.png',
-                    width: 110.0,
-                    fit: BoxFit.contain,
-                  ),
-                ],
-              ),
+              // Row(
+              //   mainAxisAlignment: MainAxisAlignment.center,
+              //   children: [
+              //     Image.asset(
+              //       'assets/images/coding.png',
+              //       width: 110.0,
+              //       fit: BoxFit.contain,
+              //     ),
+              //   ],
+              // ),
               const SizedBox(height: 40),
               // Header Section
               Text(
