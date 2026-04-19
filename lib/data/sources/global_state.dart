@@ -1,84 +1,74 @@
+import 'package:code_mate/data/models/user_model.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../models/user_model.dart';
 
 class GlobalState {
   static final GlobalState _instance = GlobalState._internal();
 
-  factory GlobalState() => _instance;
+  factory GlobalState() {
+    return _instance;
+  }
 
   GlobalState._internal();
 
-  bool loggedIn = false;
-  String? accessToken;
-  String? refreshToken;
-  UserModel? currentUser;
+  String? _accessToken;
+  String? _refreshToken;
+  UserModel? _currentUser;
+  bool _loggedIn = false;
 
+  // Getters
+  String? get accessToken => _accessToken;
+  String? get refreshToken => _refreshToken;
+  UserModel? get currentUser => _currentUser;
+  bool get loggedIn => _loggedIn;
+
+  // Called in main.dart before runApp
   Future<void> loadPrefs() async {
     final prefs = await SharedPreferences.getInstance();
+    _accessToken = prefs.getString('access_token');
+    _refreshToken = prefs.getString('refresh_token');
+    _loggedIn = prefs.getBool('is_logged_in') ?? false;
 
-    loggedIn = prefs.getBool('loggedIn') ?? false;
-    accessToken = prefs.getString('accessToken');
-    refreshToken = prefs.getString('refreshToken');
-
-    final userJsonStr = prefs.getString('currentUser');
-    if (userJsonStr != null && userJsonStr.isNotEmpty) {
+    final userJson = prefs.getString('user');
+    if (userJson != null && userJson.isNotEmpty) {
       try {
-        currentUser = UserModel.fromJsonString(userJsonStr);
+        _currentUser = UserModel.fromJsonString(userJson);
       } catch (e) {
-        currentUser = null;
-        loggedIn = false;
+        debugPrint("Failed to parse user JSON on init: $e");
       }
-    } else {
-      loggedIn = false;
     }
   }
 
-
-  Future<bool> saveTokens({
+  // THE FIX: Update memory AND disk
+  Future<void> saveTokens({
     required String access,
     required String refresh,
   }) async {
+    _accessToken = access; // <-- Updates RAM
+    _refreshToken = refresh; // <-- Updates RAM
+
     final prefs = await SharedPreferences.getInstance();
-    accessToken = access;
-    refreshToken = refresh;
-
-    final bool accessSaved = await prefs.setString('accessToken', access);
-    final bool refreshSaved = await prefs.setString('refreshToken', refresh);
-
-    return accessSaved && refreshSaved;
+    await prefs.setString('access_token', access); // <-- Updates Disk
+    await prefs.setString('refresh_token', refresh);
   }
 
-  Future<bool> updateAccessToken(String newAccessToken) async {
+  // THE FIX: Update memory AND disk
+  Future<void> saveUserAndStatus(UserModel user) async {
+    _currentUser = user; // <-- Updates RAM
+    _loggedIn = true; // <-- Updates RAM
+
     final prefs = await SharedPreferences.getInstance();
-    accessToken = newAccessToken;
-    return prefs.setString('accessToken', newAccessToken);
+    await prefs.setString('user', user.toJsonString()); // <-- Updates Disk
+    await prefs.setBool('is_logged_in', true);
   }
 
-  Future<bool> saveUserAndStatus(UserModel user) async {
+  Future<void> clearPrefs() async {
+    _accessToken = null;
+    _refreshToken = null;
+    _currentUser = null;
+    _loggedIn = false;
+
     final prefs = await SharedPreferences.getInstance();
-    currentUser = user;
-    loggedIn = true;
-
-    final bool userSaved = await prefs.setString(
-      'currentUser',
-      user.toJsonString(),
-    );
-    final bool statusSaved = await prefs.setBool('loggedIn', true);
-
-    return userSaved && statusSaved;
-  }
-
-  Future<bool> clearPrefs() async {
-    final prefs = await SharedPreferences.getInstance();
-    final cleared = await prefs.clear();
-
-    if (cleared) {
-      loggedIn = false;
-      accessToken = null;
-      refreshToken = null;
-      currentUser = null;
-    }
-
-    return cleared;
+    await prefs.clear();
   }
 }

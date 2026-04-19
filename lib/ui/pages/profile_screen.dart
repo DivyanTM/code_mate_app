@@ -1,10 +1,75 @@
+import 'dart:typed_data';
+
+import 'package:code_mate/data/models/user_model.dart';
 import 'package:code_mate/data/sources/global_state.dart';
+import 'package:code_mate/service/user_service.dart';
 import 'package:code_mate/ui/pages/edit_profile_screen.dart';
 import 'package:code_mate/ui/pages/login_page.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  late Future<UserModel> _profileFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  void _loadProfile() {
+    setState(() {
+      _profileFuture = UserService().getMyProfile();
+    });
+  }
+
+  // ─── Image provider ────────────────────────────────────────────────────────
+  // Handles every shape the server can return:
+  //   • Uint8List  → binary stored in MongoDB, converted by UserModel.fromJson
+  //   • String URL → if the picture is stored as a URL
+  //   • null       → no picture set yet
+  ImageProvider _getProfileImage(dynamic profilePicture) {
+    if (profilePicture == null) {
+      debugPrint('[ProfileScreen] profilePicture is null → fallback');
+      return const NetworkImage('https://i.pravatar.cc/300?img=11');
+    }
+
+    if (profilePicture is Uint8List) {
+      if (profilePicture.isNotEmpty) {
+        debugPrint(
+          '[ProfileScreen] profilePicture is Uint8List (${profilePicture.length} bytes) → MemoryImage',
+        );
+        return MemoryImage(profilePicture);
+      }
+      debugPrint(
+        '[ProfileScreen] profilePicture is empty Uint8List → fallback',
+      );
+      return const NetworkImage('https://i.pravatar.cc/300?img=11');
+    }
+
+    if (profilePicture is String) {
+      if (profilePicture.startsWith('http')) {
+        debugPrint('[ProfileScreen] profilePicture is URL → NetworkImage');
+        return NetworkImage(profilePicture);
+      }
+      debugPrint(
+        '[ProfileScreen] profilePicture is non-URL String ("$profilePicture") → fallback',
+      );
+      return const NetworkImage('https://i.pravatar.cc/300?img=11');
+    }
+
+    debugPrint(
+      '[ProfileScreen] profilePicture unhandled type ${profilePicture.runtimeType} → fallback',
+    );
+    return const NetworkImage('https://i.pravatar.cc/300?img=11');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -12,77 +77,118 @@ class ProfileScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
-      // We use CustomScrollView for that "Social Media" collapsing header effect
-      body: CustomScrollView(
-        slivers: [
-          _buildSliverAppBar(context, theme),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+      body: FutureBuilder<UserModel>(
+        future: _profileFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError || !snapshot.hasData) {
+            return Center(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const SizedBox(height: 16), // Space for overlapping avatar
-                  _buildProfileHeader(theme),
-                  const SizedBox(height: 24),
-                  _buildStatsRow(theme),
-                  const SizedBox(height: 24),
-                  const Divider(),
-                  const SizedBox(height: 24),
-                  _buildSocialLinks(context, theme),
-                  const SizedBox(height: 32),
-                  _buildSectionHeader(theme, "Tech Stack", Icons.layers),
+                  Text(
+                    'Failed to load profile',
+                    style: TextStyle(color: theme.colorScheme.error),
+                  ),
                   const SizedBox(height: 16),
-                  _buildSkillsWrap(theme),
-                  const SizedBox(height: 32),
-                  _buildSectionHeader(theme, "Experience", Icons.work_history),
-                  const SizedBox(height: 16),
-                  _buildExperienceTimeline(theme),
-                  const SizedBox(height: 40), // Bottom padding
+                  TextButton(
+                    onPressed: _loadProfile,
+                    child: const Text('Retry'),
+                  ),
                 ],
               ),
+            );
+          }
+
+          final user = snapshot.data!;
+
+          return RefreshIndicator(
+            onRefresh: () async => _loadProfile(),
+            child: CustomScrollView(
+              slivers: [
+                _buildSliverAppBar(context, theme, user),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        const SizedBox(height: 16),
+                        _buildProfileHeader(theme, user),
+                        const SizedBox(height: 24),
+                        _buildStatsRow(theme),
+                        const SizedBox(height: 24),
+                        const Divider(),
+                        const SizedBox(height: 24),
+                        _buildSocialLinks(context, theme, user),
+                        const SizedBox(height: 32),
+                        _buildSectionHeader(theme, 'Tech Stack', Icons.layers),
+                        const SizedBox(height: 16),
+                        _buildSkillsWrap(theme, user),
+                        const SizedBox(height: 32),
+                        _buildSectionHeader(
+                          theme,
+                          'Experience',
+                          Icons.work_history,
+                        ),
+                        const SizedBox(height: 16),
+                        _buildExperienceTimeline(theme, user),
+                        const SizedBox(height: 100),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          // WIRING: Navigate to Edit Screen
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const EditProfileScreen()),
           );
         },
-        icon: const Icon(Icons.edit_outlined),
-        label: const Text("Edit Profile"),
+      ),
+      floatingActionButton: FutureBuilder<UserModel>(
+        future: _profileFuture,
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) return const SizedBox.shrink();
+          return FloatingActionButton.extended(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => EditProfileScreen(user: snapshot.data!),
+                ),
+              ).then((_) => _loadProfile()); // always reload after editing
+            },
+            icon: const Icon(Icons.edit_outlined),
+            label: const Text('Edit Profile'),
+          );
+        },
       ),
     );
   }
 
-  // 1. THE FANCY COLLAPSING HEADER
-  Widget _buildSliverAppBar(BuildContext context, ThemeData theme) {
+  // ─── Sliver app bar ────────────────────────────────────────────────────────
+  Widget _buildSliverAppBar(
+    BuildContext context,
+    ThemeData theme,
+    UserModel user,
+  ) {
     return SliverAppBar(
       expandedHeight: 220.0,
-      floating: false,
       pinned: true,
       backgroundColor: theme.colorScheme.surface,
-      elevation: 0,
-      iconTheme: IconThemeData(color: theme.colorScheme.onSurface),
       flexibleSpace: FlexibleSpaceBar(
         background: Stack(
           alignment: Alignment.bottomCenter,
           children: [
-            // Cover Photo
             Positioned.fill(
-              bottom: 40, // Leave room for the avatar half-out
+              bottom: 40,
               child: Image.network(
-                "https://images.unsplash.com/photo-1550439062-609e1531270e?q=80&w=2070&auto=format&fit=crop",
+                'https://images.unsplash.com/photo-1550439062-609e1531270e?q=80&w=2070&auto=format&fit=crop',
                 fit: BoxFit.cover,
-                color: Colors.black.withOpacity(0.2), // Slight dim for text
+                color: Colors.black.withValues(alpha: 0.2),
                 colorBlendMode: BlendMode.darken,
               ),
             ),
-            // The "Curved" cut at the bottom of the banner
             Positioned(
               bottom: 39,
               left: 0,
@@ -97,21 +203,27 @@ class ProfileScreen extends StatelessWidget {
                 ),
               ),
             ),
-            // The Avatar
             Positioned(
               bottom: 0,
               child: Container(
-                padding: const EdgeInsets.all(4), // White border effect
+                padding: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
                   color: theme.scaffoldBackgroundColor,
                   shape: BoxShape.circle,
                 ),
                 child: CircleAvatar(
                   radius: 50,
-                  backgroundImage: const NetworkImage(
-                    "https://i.pravatar.cc/300?img=11",
+                  // Key forces Flutter to rebuild the CircleAvatar when the
+                  // picture data changes, avoiding stale image cache.
+                  key: ValueKey(
+                    user.profilePicture is Uint8List
+                        ? (user.profilePicture as Uint8List).length
+                        : user.profilePicture.toString(),
                   ),
-                  backgroundColor: theme.colorScheme.primary.withOpacity(0.1),
+                  backgroundImage: _getProfileImage(user.profilePicture),
+                  backgroundColor: theme.colorScheme.primary.withValues(
+                    alpha: 0.1,
+                  ),
                 ),
               ),
             ),
@@ -120,26 +232,12 @@ class ProfileScreen extends StatelessWidget {
       ),
       actions: [
         IconButton(
-          icon: const Icon(Icons.share_rounded, color: Colors.white),
+          icon: const Icon(Icons.logout_rounded, color: Colors.white),
           onPressed: () {
             GlobalState().clearPrefs();
             Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const LoginScreen(),
-                ),
-              );
-          },
-        ),
-        IconButton(
-          icon: const Icon(Icons.settings_outlined, color: Colors.white),
-          onPressed: () {
-            // Reuse the same navigation
-            Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (context) => const EditProfileScreen(),
-              ),
+              MaterialPageRoute(builder: (context) => const LoginScreen()),
             );
           },
         ),
@@ -147,279 +245,210 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  // 2. NAME AND BIO
-  Widget _buildProfileHeader(ThemeData theme) {
+  // ─── Profile header ────────────────────────────────────────────────────────
+  Widget _buildProfileHeader(ThemeData theme, UserModel user) {
     return Column(
       children: [
         Text(
-          "Alex Rivera",
+          user.name,
           style: theme.textTheme.headlineMedium?.copyWith(
             fontWeight: FontWeight.w900,
-            color: theme.colorScheme.onSurface,
           ),
         ),
         const SizedBox(height: 4),
-        Text(
-          "Senior Backend Architect",
-          style: theme.textTheme.titleMedium?.copyWith(
-            color: theme.colorScheme.primary,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          "Building scalable distributed systems. Open source enthusiast. Coffee addict ☕",
-          textAlign: TextAlign.center,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurface.withOpacity(0.7),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.location_on_rounded,
-              size: 16,
-              color: theme.colorScheme.onSurface.withOpacity(0.5),
+        if (user.headline.isNotEmpty)
+          Text(
+            user.headline,
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.w600,
             ),
-            const SizedBox(width: 4),
-            Text(
-              "San Francisco, CA",
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurface.withOpacity(0.5),
-              ),
+          ),
+        const SizedBox(height: 8),
+        if (user.bio.isNotEmpty)
+          Text(
+            user.bio,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
             ),
-          ],
-        ),
+          ),
       ],
     );
   }
 
-  // 3. STATS ROW (Social Proof)
+  // ─── Stats row ─────────────────────────────────────────────────────────────
   Widget _buildStatsRow(ThemeData theme) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 15,
-            offset: const Offset(0, 5),
-          ),
-        ],
+        border: Border.all(
+          color: theme.dividerTheme.color ?? Colors.grey.shade300,
+        ),
       ),
-      child: Row(
+      child: const Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          _buildStatItem(theme, "245", "Connections"),
-          Container(width: 1, height: 40, color: theme.dividerTheme.color),
-          _buildStatItem(theme, "12", "Projects"),
-          Container(width: 1, height: 40, color: theme.dividerTheme.color),
-          _buildStatItem(theme, "4.9", "Rating", isRating: true),
+          _StatItem(value: '245', label: 'Connections'),
+          _StatItem(value: '12', label: 'Projects'),
+          _StatItem(value: '4.9', label: 'Rating', isRating: true),
         ],
       ),
     );
   }
 
-  Widget _buildStatItem(
+  // ─── Social links ──────────────────────────────────────────────────────────
+  Widget _buildSocialLinks(
+    BuildContext context,
     ThemeData theme,
-    String value,
-    String label, {
-    bool isRating = false,
-  }) {
-    return Column(
+    UserModel user,
+  ) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w900,
-                color: theme.colorScheme.onSurface,
-              ),
-            ),
-            if (isRating) ...[
-              const SizedBox(width: 2),
-              const Icon(Icons.star_rounded, color: Colors.amber, size: 18),
-            ],
-          ],
+        if (user.githubURI.isNotEmpty)
+          _buildSocialIcon(
+            context,
+            theme,
+            Icons.code,
+            Colors.black87,
+            user.githubURI,
+          ),
+        if (user.linkedinURI.isNotEmpty)
+          _buildSocialIcon(
+            context,
+            theme,
+            Icons.business,
+            const Color(0xFF0077B5),
+            user.linkedinURI,
+          ),
+        if (user.portfolioURI.isNotEmpty)
+          _buildSocialIcon(
+            context,
+            theme,
+            Icons.language,
+            theme.colorScheme.primary,
+            user.portfolioURI,
+          ),
+        _buildSocialIcon(
+          context,
+          theme,
+          Icons.alternate_email,
+          Colors.redAccent,
+          'mailto:${user.email}',
         ),
-        const SizedBox(height: 4),
+      ],
+    );
+  }
+
+  Widget _buildSocialIcon(
+    BuildContext context,
+    ThemeData theme,
+    IconData icon,
+    Color color,
+    String url,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: InkWell(
+        onTap: () => ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Opening $url...'))),
+        borderRadius: BorderRadius.circular(50),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.1),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, color: color, size: 24),
+        ),
+      ),
+    );
+  }
+
+  // ─── Section header ────────────────────────────────────────────────────────
+  Widget _buildSectionHeader(ThemeData theme, String title, IconData icon) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: theme.colorScheme.primary),
+        const SizedBox(width: 8),
         Text(
-          label,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurface.withOpacity(0.5),
-            fontWeight: FontWeight.w600,
+          title.toUpperCase(),
+          style: theme.textTheme.labelLarge?.copyWith(
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1.1,
           ),
         ),
       ],
     );
   }
 
-  // 4. SOCIAL LINKS (Icon Row)
-  // Update _buildSocialLinks inside ProfileScreen
-
-  Widget _buildSocialLinks(BuildContext context, ThemeData theme) {
-    // Map logic to specific URLs
-    final socialItems = [
-      {
-        'icon': Icons.code,
-        'color': Colors.black87,
-        'url': 'https://github.com',
-      },
-      {
-        'icon': Icons.business,
-        'color': const Color(0xFF0077B5),
-        'url': 'https://linkedin.com',
-      },
-      {
-        'icon': Icons.language,
-        'color': theme.colorScheme.primary,
-        'url': 'https://alex.dev',
-      },
-      {
-        'icon': Icons.alternate_email,
-        'color': Colors.redAccent,
-        'url': 'mailto:alex@email.com',
-      },
-    ];
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: socialItems.map((item) {
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: InkWell(
-            // WIRING: Open the specific URL
-            onTap: () => _launchSocialUrl(context, item['url'] as String),
-            borderRadius: BorderRadius.circular(50),
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: (item['color'] as Color).withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                item['icon'] as IconData,
-                color: item['color'] as Color,
-                size: 24,
-              ),
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  // Helper method to handle external links
-  void _launchSocialUrl(BuildContext context, String url) {
-    // In a real app, use: await launchUrl(Uri.parse(url));
-    // For now, we show a confirmation snackbar to prove it works
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text("Opening $url...")));
-  }
-
-  // 5. SKILLS SECTION (Styled Chips)
-  Widget _buildSkillsWrap(ThemeData theme) {
-    final skills = [
-      "Flutter",
-      "Go",
-      "AWS",
-      "Kubernetes",
-      "gRPC",
-      "PostgreSQL",
-      "Docker",
-      "Redis",
-    ];
-
+  // ─── Skills wrap ───────────────────────────────────────────────────────────
+  Widget _buildSkillsWrap(ThemeData theme, UserModel user) {
+    if (user.skills.isEmpty) {
+      return const Text(
+        'No skills added yet.',
+        style: TextStyle(color: Colors.grey),
+      );
+    }
     return Wrap(
       spacing: 10,
       runSpacing: 10,
-      children: skills.map((skill) {
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: theme.dividerTheme.color!),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.02),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
+      children: user.skills
+          .map(
+            (skill) => Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: theme.dividerTheme.color ?? Colors.grey.shade300,
+                ),
               ),
-            ],
-          ),
-          child: Text(
-            skill,
-            style: TextStyle(
-              fontWeight: FontWeight.w600,
-              color: theme.colorScheme.onSurface.withOpacity(0.8),
+              child: Text(
+                skill,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
             ),
-          ),
-        );
-      }).toList(),
+          )
+          .toList(),
     );
   }
 
-  // 6. EXPERIENCE TIMELINE (Visual List)
-  Widget _buildExperienceTimeline(ThemeData theme) {
-    // Mock Data
-    final experience = [
-      {
-        "role": "Senior Backend Architect",
-        "company": "TechFlow Systems",
-        "date": "2021 - Present",
-        "color": Colors.blue,
-      },
-      {
-        "role": "Lead Developer",
-        "company": "StartupX",
-        "date": "2018 - 2021",
-        "color": Colors.orange,
-      },
-      {
-        "role": "Software Engineer",
-        "company": "DevCorp",
-        "date": "2016 - 2018",
-        "color": Colors.purple,
-      },
-    ];
-
+  // ─── Experience timeline ───────────────────────────────────────────────────
+  Widget _buildExperienceTimeline(ThemeData theme, UserModel user) {
+    if (user.experience.isEmpty) {
+      return const Text(
+        'No experience added.',
+        style: TextStyle(color: Colors.grey),
+      );
+    }
     return ListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      itemCount: experience.length,
+      itemCount: user.experience.length,
       itemBuilder: (context, index) {
-        final item = experience[index];
+        final item = user.experience[index];
+        final dotColor = item['color'] != null
+            ? Color(int.parse(item['color']))
+            : theme.colorScheme.primary;
         return IntrinsicHeight(
           child: Row(
             children: [
-              // Timeline Line
               Column(
                 children: [
                   Container(
                     width: 12,
                     height: 12,
                     decoration: BoxDecoration(
-                      color: item['color'] as Color,
+                      color: dotColor,
                       shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 2),
-                      boxShadow: [
-                        BoxShadow(
-                          color: (item['color'] as Color).withOpacity(0.4),
-                          blurRadius: 6,
-                        ),
-                      ],
                     ),
                   ),
-                  if (index != experience.length - 1)
+                  if (index != user.experience.length - 1)
                     Expanded(
                       child: Container(
                         width: 2,
@@ -429,7 +458,6 @@ class ProfileScreen extends StatelessWidget {
                 ],
               ),
               const SizedBox(width: 20),
-              // Content
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.only(bottom: 24.0),
@@ -437,25 +465,25 @@ class ProfileScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        item['role'] as String,
+                        item['role'] ?? '',
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
                         ),
                       ),
-                      const SizedBox(height: 4),
                       Text(
-                        item['company'] as String,
+                        item['company'] ?? '',
                         style: TextStyle(
-                          color: theme.colorScheme.onSurface.withOpacity(0.7),
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.7,
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 4),
                       Text(
-                        item['date'] as String,
+                        item['date'] ?? '',
                         style: TextStyle(
                           fontSize: 12,
-                          color: theme.colorScheme.primary.withOpacity(0.8),
+                          color: theme.colorScheme.primary,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -469,18 +497,38 @@ class ProfileScreen extends StatelessWidget {
       },
     );
   }
+}
 
-  Widget _buildSectionHeader(ThemeData theme, String title, IconData icon) {
-    return Row(
+// ─── Stat item ─────────────────────────────────────────────────────────────
+class _StatItem extends StatelessWidget {
+  final String value, label;
+  final bool isRating;
+  const _StatItem({
+    required this.value,
+    required this.label,
+    this.isRating = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
       children: [
-        Icon(icon, size: 20, color: theme.colorScheme.primary),
-        const SizedBox(width: 8),
+        Row(
+          children: [
+            Text(
+              value,
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+            ),
+            if (isRating)
+              const Icon(Icons.star_rounded, color: Colors.amber, size: 18),
+          ],
+        ),
         Text(
-          title.toUpperCase(),
-          style: theme.textTheme.labelLarge?.copyWith(
-            fontWeight: FontWeight.w900,
-            letterSpacing: 1.1,
-            color: theme.colorScheme.onSurface.withOpacity(0.8),
+          label,
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
           ),
         ),
       ],

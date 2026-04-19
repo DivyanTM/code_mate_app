@@ -29,7 +29,6 @@ class ApiService {
 
           if (authRequired) {
             final token = GlobalState().accessToken;
-            debugPrint("AUTH TOKEN : $token");
             if (token != null && token.isNotEmpty) {
               final cleanToken = token
                   .replaceAll('\n', '')

@@ -1,8 +1,8 @@
-import 'package:flutter/material.dart';
-import 'package:code_mate/ui/widgets/custom_input_field.dart';
-import 'package:code_mate/ui/pages/register_page.dart';
-import 'package:code_mate/ui/pages/home_screen.dart';
 import 'package:code_mate/service/auth_service.dart';
+import 'package:code_mate/ui/pages/home_screen.dart';
+import 'package:code_mate/ui/pages/register_page.dart';
+import 'package:code_mate/ui/widgets/custom_input_field.dart';
+import 'package:flutter/material.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -12,11 +12,9 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
-  
   bool _isLoading = false;
 
   @override
@@ -26,34 +24,32 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  
   Future<void> _handleLogin() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
 
     if (email.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill in both fields'),backgroundColor: Colors.red,),
+        const SnackBar(
+          content: Text('Please fill in both fields'),
+          backgroundColor: Colors.red,
+        ),
       );
       return;
     }
 
     setState(() => _isLoading = true);
 
-    
     final (success, message) = await AuthService().login(email, password);
 
-    
     if (!mounted) return;
 
     setState(() => _isLoading = false);
 
-    
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
 
-    
     if (success) {
       Navigator.pushReplacement(
         context,
@@ -75,18 +71,8 @@ class _LoginScreenState extends State<LoginScreen> {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               const SizedBox(height: 40),
-              // Logo Section
-              // Row(
-              //   mainAxisAlignment: MainAxisAlignment.center,
-              //   children: [
-              //     Image.asset(
-              //       'assets/images/coding.png',
-              //       width: 110.0,
-              //       fit: BoxFit.contain,
-              //     ),
-              //   ],
-              // ),
               const SizedBox(height: 40),
+
               // Header Section
               Text(
                 "Welcome Back",
@@ -99,7 +85,7 @@ class _LoginScreenState extends State<LoginScreen> {
               Text(
                 "Please sign in to continue",
                 style: theme.textTheme.bodyLarge?.copyWith(
-                  color: theme.colorScheme.onSurface.withOpacity(0.6),
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                 ),
               ),
               const SizedBox(height: 8),
@@ -111,7 +97,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   borderRadius: BorderRadius.circular(24),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
+                      color: Colors.black.withValues(alpha: 0.05),
                       blurRadius: 20,
                       offset: const Offset(0, 10),
                     ),
@@ -121,13 +107,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
                   children: [
                     CustomInputField(
-                      controller: _emailController, 
+                      controller: _emailController,
                       label: "Email Address",
                       prefixIcon: Icons.email_outlined,
                     ),
                     const SizedBox(height: 20),
                     CustomInputField(
-                      controller: _passwordController, 
+                      controller: _passwordController,
                       label: "Password",
                       prefixIcon: Icons.lock_outline,
                       isPassword: true,

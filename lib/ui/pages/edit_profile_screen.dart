@@ -1,81 +1,187 @@
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:code_mate/data/models/user_model.dart';
+import 'package:code_mate/service/user_service.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+
 import '../widgets/custom_input_field.dart';
-import '../widgets/experience_form_sheet.dart';
 
 class EditProfileScreen extends StatefulWidget {
-  const EditProfileScreen({super.key});
+  final UserModel user;
+  const EditProfileScreen({super.key, required this.user});
 
   @override
   State<EditProfileScreen> createState() => _EditProfileScreenState();
 }
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
-  // --- CONTROLLERS ---
-  final _nameController = TextEditingController(text: "Alex Rivera");
-  final _roleController = TextEditingController(text: "Senior Backend Architect");
-  final _bioController = TextEditingController(text: "Building scalable distributed systems. Open source enthusiast.");
-  final _locationController = TextEditingController(text: "San Francisco, CA");
-  final _githubController = TextEditingController(text: "github.com/alexrivera");
-  final _linkedinController = TextEditingController(text: "linkedin.com/in/alex");
-  
-  // Skill Input Controller
+  late TextEditingController _nameController,
+      _roleController,
+      _bioController,
+      _githubController,
+      _linkedinController,
+      _portfolioController;
   final _skillInputController = TextEditingController();
 
-  // --- STATE DATA ---
-  
-  // Skills List
-  final List<String> _skills = ["Flutter", "Go", "AWS", "Kubernetes", "gRPC"];
+  late List<String> _skills;
+  late List<Map<String, dynamic>> _experience;
+  bool _isSaving = false;
+  bool _isUploadingPicture = false;
 
-  // Experience List
-  final List<Map<String, dynamic>> _experience = [
-    {
-      "role": "Senior Backend Architect",
-      "company": "TechFlow Systems",
-      "date": "2021 - Present",
-      "color": Colors.blue,
-    },
-    {
-      "role": "Lead Developer",
-      "company": "StartupX",
-      "date": "2018 - 2021",
-      "color": Colors.orange,
-    },
-    {
-      "role": "Software Engineer",
-      "company": "DevCorp",
-      "date": "2016 - 2018",
-      "color": Colors.purple,
-    },
-  ];
+  // Tracks the current profile picture state:
+  //   • null          → use widget.user.profilePicture (original)
+  //   • File          → local preview while upload is in progress
+  //   • Uint8List     → server-confirmed bytes after a successful upload
+  dynamic _resolvedPicture; // null | File | Uint8List | String (url)
 
   @override
-  void dispose() {
-    _nameController.dispose();
-    _roleController.dispose();
-    _bioController.dispose();
-    _locationController.dispose();
-    _githubController.dispose();
-    _linkedinController.dispose();
-    _skillInputController.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.user.name);
+    _roleController = TextEditingController(text: widget.user.headline);
+    _bioController = TextEditingController(text: widget.user.bio);
+    _githubController = TextEditingController(text: widget.user.githubURI);
+    _linkedinController = TextEditingController(text: widget.user.linkedinURI);
+    _portfolioController = TextEditingController(
+      text: widget.user.portfolioURI,
+    );
+    _skills = List<String>.from(widget.user.skills);
+    _experience = List<Map<String, dynamic>>.from(widget.user.experience);
   }
 
   @override
+  void dispose() {
+    for (final c in [
+      _nameController,
+      _roleController,
+      _bioController,
+      _githubController,
+      _linkedinController,
+      _portfolioController,
+      _skillInputController,
+    ]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  // ─── Avatar provider ───────────────────────────────────────────────────────
+  // Priority:
+  //   1. Server-confirmed Uint8List (returned after a successful upload)
+  //   2. Local File (immediate preview while uploading)
+  //   3. Original value from widget.user (String URL or Uint8List)
+  //   4. Hard-coded fallback
+  ImageProvider _getAvatarProvider() {
+    // 1. Server-confirmed bytes
+    if (_resolvedPicture is Uint8List) {
+      return MemoryImage(_resolvedPicture as Uint8List);
+    }
+
+    // 2. Local file preview
+    if (_resolvedPicture is File) {
+      return FileImage(_resolvedPicture as File);
+    }
+
+    // 3. Original picture from server
+    final pic = widget.user.profilePicture;
+    if (pic is Uint8List && pic.isNotEmpty) return MemoryImage(pic);
+    if (pic is String && pic.startsWith('http')) return NetworkImage(pic);
+
+    // 4. Fallback
+    return const NetworkImage('https://i.pravatar.cc/300?img=11');
+  }
+
+  // ─── Pick & upload ─────────────────────────────────────────────────────────
+  Future<void> _pickAndUploadImage() async {
+    final XFile? image = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 70,
+    );
+    if (image == null) return;
+
+    // Show local preview immediately while the upload runs.
+    setState(() {
+      _resolvedPicture = File(image.path);
+      _isUploadingPicture = true;
+    });
+
+    final (success, message, updatedUser) = await UserService()
+        .uploadProfilePicture(File(image.path));
+
+    if (!mounted) return;
+
+    setState(() {
+      _isUploadingPicture = false;
+      if (success && updatedUser != null) {
+        // Replace the local File with the server-confirmed picture so the
+        // avatar stays in sync with what is actually stored in the database.
+        final serverPic = updatedUser.profilePicture;
+        if (serverPic is Uint8List && serverPic.isNotEmpty) {
+          _resolvedPicture = serverPic;
+        } else if (serverPic is String && serverPic.startsWith('http')) {
+          _resolvedPicture = serverPic; // handled by _getAvatarProvider
+        }
+        // If the server returned nothing useful, keep the local File preview.
+      }
+    });
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  // ─── Save profile ──────────────────────────────────────────────────────────
+  Future<void> _saveProfile() async {
+    setState(() => _isSaving = true);
+    final (success, message) = await UserService().updateProfile(
+      name: _nameController.text.trim(),
+      headline: _roleController.text.trim(),
+      bio: _bioController.text.trim(),
+      githubURI: _githubController.text.trim(),
+      linkedinURI: _linkedinController.text.trim(),
+      portfolioURI: _portfolioController.text.trim(),
+      skills: _skills,
+    );
+    if (!mounted) return;
+    setState(() => _isSaving = false);
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+    if (success) Navigator.pop(context, true);
+  }
+
+  // ─── Build ─────────────────────────────────────────────────────────────────
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text("Edit Profile"),
+        title: const Text('Edit Profile'),
         actions: [
-          TextButton(
-            onPressed: _saveProfile,
-            child: Text(
-              "Save", 
-              style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.bold)
-            ),
-          )
+          _isSaving
+              ? const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                )
+              : TextButton(
+                  onPressed: _saveProfile,
+                  child: Text(
+                    'Save',
+                    style: TextStyle(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
         ],
       ),
       body: SingleChildScrollView(
@@ -83,27 +189,30 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 1. PROFILE PHOTO EDIT
             Center(
               child: Stack(
                 children: [
                   CircleAvatar(
                     radius: 50,
-                    backgroundImage: const NetworkImage("https://i.pravatar.cc/300?img=11"),
-                    backgroundColor: theme.colorScheme.primary.withOpacity(0.1),
+                    backgroundImage: _getAvatarProvider(),
+                    // Show spinner overlay while uploading.
+                    child: _isUploadingPicture
+                        ? const CircularProgressIndicator(color: Colors.white)
+                        : null,
                   ),
                   Positioned(
-                    bottom: 0, 
+                    bottom: 0,
                     right: 0,
                     child: GestureDetector(
-                      onTap: () {
-                        // Logic to pick image from gallery would go here
-                        print("Pick Image");
-                      },
+                      onTap: _isUploadingPicture ? null : _pickAndUploadImage,
                       child: CircleAvatar(
                         radius: 16,
                         backgroundColor: theme.colorScheme.primary,
-                        child: const Icon(Icons.camera_alt, size: 16, color: Colors.white),
+                        child: const Icon(
+                          Icons.camera_alt,
+                          size: 16,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                   ),
@@ -111,214 +220,90 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               ),
             ),
             const SizedBox(height: 32),
-
-            // 2. BASIC INFO SECTION
-            _buildSectionLabel(theme, "BASIC INFO"),
+            _buildLabel(theme, 'BASIC INFO'),
             CustomInputField(
-              label: "Full Name", 
-              prefixIcon: Icons.person_outline, 
-              controller: _nameController
+              label: 'Full Name',
+              prefixIcon: Icons.person_outline,
+              controller: _nameController,
             ),
             const SizedBox(height: 16),
             CustomInputField(
-              label: "Headline / Role", 
-              prefixIcon: Icons.work_outline, 
-              controller: _roleController
+              label: 'Headline',
+              prefixIcon: Icons.work_outline,
+              controller: _roleController,
             ),
             const SizedBox(height: 16),
             CustomInputField(
-              label: "Bio", 
-              prefixIcon: Icons.info_outline, 
-              controller: _bioController
+              label: 'Bio',
+              prefixIcon: Icons.info_outline,
+              controller: _bioController,
             ),
-            const SizedBox(height: 16),
-            CustomInputField(
-              label: "Location", 
-              prefixIcon: Icons.location_on_outlined, 
-              controller: _locationController
-            ),
-            
             const SizedBox(height: 40),
-
-            // 3. EXPERIENCE SECTION (Interactive List)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _buildSectionLabel(theme, "EXPERIENCE"),
-                IconButton(
-                  onPressed: () => _openExperienceSheet(context),
-                  icon: Icon(Icons.add_circle_outline, color: theme.colorScheme.primary),
-                  tooltip: "Add Position",
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: _experience.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final item = _experience[index];
-                return _buildEditableExperienceCard(theme, item, index);
-              },
-            ),
-
-            const SizedBox(height: 40),
-
-            // 4. SKILLS SECTION
-            _buildSectionLabel(theme, "SKILLS & TECH"),
+            _buildLabel(theme, 'SKILLS'),
             Row(
               children: [
                 Expanded(
                   child: CustomInputField(
-                    label: "Add Skill", 
-                    prefixIcon: Icons.bolt, 
-                    controller: _skillInputController
+                    label: 'Add Skill',
+                    prefixIcon: Icons.bolt,
+                    controller: _skillInputController,
                   ),
                 ),
-                const SizedBox(width: 12),
                 IconButton.filled(
-                  onPressed: _addSkill,
+                  onPressed: () {
+                    if (_skillInputController.text.isNotEmpty) {
+                      setState(() {
+                        _skills.add(_skillInputController.text.trim());
+                        _skillInputController.clear();
+                      });
+                    }
+                  },
                   icon: const Icon(Icons.add),
-                  style: IconButton.styleFrom(
-                    backgroundColor: theme.colorScheme.primary,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
                 ),
               ],
             ),
             const SizedBox(height: 16),
-            
             Wrap(
-              spacing: 8, 
-              runSpacing: 8,
-              children: _skills.map((skill) => Chip(
-                label: Text(skill),
-                backgroundColor: theme.colorScheme.surface,
-                deleteIcon: const Icon(Icons.close, size: 14),
-                onDeleted: () => setState(() => _skills.remove(skill)),
-                side: BorderSide(color: theme.dividerTheme.color!),
-              )).toList(),
+              spacing: 8,
+              children: _skills
+                  .map(
+                    (s) => Chip(
+                      label: Text(s),
+                      onDeleted: () => setState(() => _skills.remove(s)),
+                    ),
+                  )
+                  .toList(),
             ),
-
             const SizedBox(height: 40),
-
-            // 5. SOCIAL LINKS
-            _buildSectionLabel(theme, "SOCIAL LINKS"),
+            _buildLabel(theme, 'SOCIALS'),
             CustomInputField(
-              label: "GitHub URL", 
-              prefixIcon: Icons.code, 
-              controller: _githubController
+              label: 'GitHub',
+              prefixIcon: Icons.code,
+              controller: _githubController,
             ),
             const SizedBox(height: 16),
             CustomInputField(
-              label: "LinkedIn URL", 
-              prefixIcon: Icons.business, 
-              controller: _linkedinController
+              label: 'LinkedIn',
+              prefixIcon: Icons.business,
+              controller: _linkedinController,
             ),
-
-            const SizedBox(height: 50), // Bottom padding
+            const SizedBox(height: 50),
           ],
         ),
       ),
     );
   }
 
-  // --- WIDGET HELPERS ---
-
-  Widget _buildEditableExperienceCard(ThemeData theme, Map<String, dynamic> item, int index) {
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.dividerTheme.color!),
+  Widget _buildLabel(ThemeData theme, String text) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: Text(
+      text,
+      style: TextStyle(
+        color: theme.colorScheme.primary,
+        fontWeight: FontWeight.bold,
+        fontSize: 12,
+        letterSpacing: 1.2,
       ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        leading: Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: (item['color'] as Color).withOpacity(0.1),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(Icons.business_center, size: 20, color: item['color'] as Color),
-        ),
-        title: Text(item['role'], style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text("${item['company']} • ${item['date']}"),
-        trailing: IconButton(
-          icon: const Icon(Icons.edit_outlined, size: 20, color: Colors.grey),
-          onPressed: () => _openExperienceSheet(context, index: index, data: item),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSectionLabel(ThemeData theme, String text) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Text(
-        text, 
-        style: TextStyle(
-          color: theme.colorScheme.primary, 
-          fontWeight: FontWeight.bold, 
-          fontSize: 12, 
-          letterSpacing: 1.2
-        ),
-      ),
-    );
-  }
-
-  // --- LOGIC METHODS ---
-
-  void _addSkill() {
-    final text = _skillInputController.text.trim();
-    if (text.isNotEmpty && !_skills.contains(text)) {
-      setState(() {
-        _skills.add(text);
-        _skillInputController.clear();
-      });
-    }
-  }
-
-  Future<void> _openExperienceSheet(BuildContext context, {int? index, Map<String, dynamic>? data}) async {
-    // Requires ExperienceFormSheet (provided in previous step)
-    final result = await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (context) => ExperienceFormSheet(
-        initialData: data?.map((k, v) => MapEntry(k, v.toString())),
-      ),
-    );
-
-    if (result != null) {
-      setState(() {
-        if (result['delete'] == true && index != null) {
-          _experience.removeAt(index);
-        } else if (index != null) {
-          // Edit existing item, preserve color
-          _experience[index] = {
-             ...result,
-             'color': _experience[index]['color'], 
-          };
-        } else {
-          // Add new item to top
-          _experience.insert(0, {
-            ...result,
-            'color': Colors.blueAccent, // Default color for new entries
-          });
-        }
-      });
-    }
-  }
-
-  void _saveProfile() {
-    // In a real app, send data to API
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Profile updated successfully!")),
-    );
-    Navigator.pop(context);
-  }
+    ),
+  );
 }
