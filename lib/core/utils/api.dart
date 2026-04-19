@@ -13,7 +13,7 @@ class ApiService {
 
   ApiService._internal() {
     final baseOptions = BaseOptions(
-      baseUrl: APIConstants.DEV_BASE_URL,
+      baseUrl: APIConstants.PRODUCTION_BASE_URL,
       connectTimeout: const Duration(seconds: 10),
       receiveTimeout: const Duration(seconds: 10),
       headers: {'Content-Type': 'application/json'},
