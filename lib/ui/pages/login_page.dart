@@ -2,9 +2,65 @@ import 'package:flutter/material.dart';
 import 'package:code_mate/ui/widgets/custom_input_field.dart';
 import 'package:code_mate/ui/pages/register_page.dart';
 import 'package:code_mate/ui/pages/home_screen.dart';
+import 'package:code_mate/service/auth_service.dart';
 
-class LoginScreen extends StatelessWidget {
+class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+
+  
+  bool _isLoading = false;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  
+  Future<void> _handleLogin() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+
+    if (email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please fill in both fields'),backgroundColor: Colors.red,),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    
+    final (success, message) = await AuthService().login(email, password);
+
+    
+    if (!mounted) return;
+
+    setState(() => _isLoading = false);
+
+    
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+
+    
+    if (success) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const DiscoveryHomeScreen()),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -64,12 +120,14 @@ class LoginScreen extends StatelessWidget {
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   children: [
-                    const CustomInputField(
+                    CustomInputField(
+                      controller: _emailController, 
                       label: "Email Address",
                       prefixIcon: Icons.email_outlined,
                     ),
                     const SizedBox(height: 20),
-                    const CustomInputField(
+                    CustomInputField(
+                      controller: _passwordController, 
                       label: "Password",
                       prefixIcon: Icons.lock_outline,
                       isPassword: true,
@@ -89,15 +147,16 @@ class LoginScreen extends StatelessWidget {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const DiscoveryHomeScreen(),
-                            ),
-                          );
-                        },
-                        child: const Text("Sign In"),
+                        onPressed: _isLoading ? null : _handleLogin,
+                        child: _isLoading
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text("Sign In"),
                       ),
                     ),
                   ],

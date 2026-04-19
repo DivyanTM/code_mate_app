@@ -1,34 +1,38 @@
-import 'package:code_mate/ui/pages/invite_members_screen.dart';
-import 'package:flutter/material.dart';
 import 'package:code_mate/data/models/team_model.dart';
+import 'package:code_mate/service/team_service.dart';
+// These imports are now used again by the _TeamQuickMenu
+import 'package:code_mate/ui/pages/invite_members_screen.dart';
 import 'package:code_mate/ui/widgets/create_team_sheet.dart';
+import 'package:flutter/material.dart';
+
 import 'team_dashboard_screen.dart';
 import 'team_settings_page.dart';
 
-class TeamsListScreen extends StatelessWidget {
+class TeamsListScreen extends StatefulWidget {
   const TeamsListScreen({super.key});
+
+  @override
+  State<TeamsListScreen> createState() => _TeamsListScreenState();
+}
+
+class _TeamsListScreenState extends State<TeamsListScreen> {
+  late Future<List<TeamModel>> _teamsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTeams();
+  }
+
+  void _loadTeams() {
+    setState(() {
+      _teamsFuture = TeamService().getMyTeams();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
-    // Mock Data
-    final List<Team> myTeams = [
-      Team(
-        id: '1',
-        name: "Core Platform",
-        userRole: TeamRole.owner,
-        memberCount: 1,
-        visibility: TeamVisibility.private,
-      ),
-      Team(
-        id: '2',
-        name: "Mobile App",
-        userRole: TeamRole.admin,
-        memberCount: 12,
-        visibility: TeamVisibility.public,
-      ),
-    ];
 
     return Scaffold(
       appBar: AppBar(
@@ -38,20 +42,53 @@ class TeamsListScreen extends StatelessWidget {
         ),
         actions: [
           IconButton(
-            onPressed: () => showCreateTeamSheet(context),
+            onPressed: () async {
+              await showCreateTeamSheet(context);
+              _loadTeams();
+            },
             icon: const Icon(Icons.add_box_rounded),
             color: theme.colorScheme.primary,
           ),
         ],
       ),
-      body: myTeams.isEmpty
-          ? _buildEmptyState(theme)
-          : ListView.separated(
+      body: FutureBuilder<List<TeamModel>>(
+        future: _teamsFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (snapshot.hasError) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    "Failed to load teams",
+                    style: TextStyle(color: theme.colorScheme.error),
+                  ),
+                  TextButton(onPressed: _loadTeams, child: const Text("Retry")),
+                ],
+              ),
+            );
+          }
+
+          final myTeams = snapshot.data ?? [];
+          if (myTeams.isEmpty) {
+            return _buildEmptyState(theme);
+          }
+
+          return RefreshIndicator(
+            onRefresh: () async => _loadTeams(),
+            child: ListView.separated(
               padding: const EdgeInsets.all(16),
               itemCount: myTeams.length,
               separatorBuilder: (_, __) => const SizedBox(height: 12),
               itemBuilder: (context, index) => _TeamTile(team: myTeams[index]),
             ),
+          );
+        },
+      ),
     );
   }
 
@@ -59,19 +96,21 @@ class TeamsListScreen extends StatelessWidget {
     return Center(
       child: Text(
         "No teams found. Create one to start.",
-        style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.5)),
+        // Fixed the deprecated withOpacity warning
+        style: TextStyle(
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+        ),
       ),
     );
   }
 }
 
 class _TeamTile extends StatelessWidget {
-  final Team team;
+  final TeamModel team;
   const _TeamTile({required this.team});
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Card(
       child: ListTile(
         title: Text(
@@ -109,7 +148,7 @@ class _RoleBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: isHighLevel
-            ? theme.colorScheme.primary.withOpacity(0.1)
+            ? theme.colorScheme.primary.withValues(alpha: 0.1)
             : theme.dividerTheme.color,
         borderRadius: BorderRadius.circular(6),
       ),
@@ -128,14 +167,13 @@ class _RoleBadge extends StatelessWidget {
 }
 
 class _TeamQuickMenu extends StatelessWidget {
-  final Team team;
+  final TeamModel team;
   const _TeamQuickMenu({required this.team});
 
   @override
   Widget build(BuildContext context) {
     return PopupMenuButton<String>(
       icon: const Icon(Icons.more_vert),
-      // THIS WAS MISSING: The logic to handle the click
       onSelected: (value) {
         switch (value) {
           case 'view':
@@ -147,11 +185,10 @@ class _TeamQuickMenu extends StatelessWidget {
             );
             break;
           case 'invite':
-            // Ensure you have this screen created or replace with your route
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => InviteMembersScreen(),
+                builder: (context) => InviteMembersScreen(team: team),
               ),
             );
             break;
@@ -159,7 +196,7 @@ class _TeamQuickMenu extends StatelessWidget {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => TeamSettingsScreen(),
+                builder: (context) => TeamSettingsScreen(team: team),
               ),
             );
             break;

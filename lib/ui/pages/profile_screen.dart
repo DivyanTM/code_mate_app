@@ -1,4 +1,6 @@
+import 'package:code_mate/data/sources/global_state.dart';
 import 'package:code_mate/ui/pages/edit_profile_screen.dart';
+import 'package:code_mate/ui/pages/login_page.dart';
 import 'package:flutter/material.dart';
 
 class ProfileScreen extends StatelessWidget {
@@ -119,7 +121,15 @@ class ProfileScreen extends StatelessWidget {
       actions: [
         IconButton(
           icon: const Icon(Icons.share_rounded, color: Colors.white),
-          onPressed: () {},
+          onPressed: () {
+            GlobalState().clearPrefs();
+            Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const LoginScreen(),
+                ),
+              );
+          },
         ),
         IconButton(
           icon: const Icon(Icons.settings_outlined, color: Colors.white),
