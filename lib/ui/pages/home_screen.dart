@@ -1,11 +1,15 @@
+import 'package:code_mate/data/models/match_model.dart';
+import 'package:code_mate/data/sources/global_state.dart';
+import 'package:code_mate/service/match_service.dart';
 import 'package:code_mate/ui/pages/chat_list_screen.dart';
+import 'package:code_mate/ui/pages/login_page.dart';
 import 'package:code_mate/ui/pages/nearby_results_screen.dart';
-import 'package:flutter/material.dart';
-import 'package:code_mate/ui/widgets/dev_match_card.dart';
-import 'package:flutter_card_swiper/flutter_card_swiper.dart';
-import 'package:code_mate/ui/pages/team_list_screen.dart';
-import 'package:code_mate/ui/pages/project_list_screen.dart';
 import 'package:code_mate/ui/pages/profile_screen.dart';
+import 'package:code_mate/ui/pages/project_list_screen.dart';
+import 'package:code_mate/ui/pages/team_list_screen.dart';
+import 'package:code_mate/ui/widgets/dev_match_card.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_card_swiper/flutter_card_swiper.dart';
 
 class DiscoveryHomeScreen extends StatefulWidget {
   const DiscoveryHomeScreen({super.key});
@@ -15,50 +19,68 @@ class DiscoveryHomeScreen extends StatefulWidget {
 }
 
 class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
-  final CardSwiperController controller = CardSwiperController();
-  int _currentIndex = 0; // For Bottom Navigation Tracking
+  final CardSwiperController _swiperController = CardSwiperController();
+  final MatchService _matchService = MatchService();
 
-  final List<Map<String, dynamic>> candidates = [
-    {
-      "name": "Alex Rivera",
-      "role": "Backend Architect",
-      "skills": ["Go", "Kubernetes", "gRPC"],
-      "bio": "Building a distributed task scheduler. Need a Frontend lead.",
-    },
-    {
-      "name": "Sarah Chen",
-      "role": "UI/UX Designer",
-      "skills": ["Figma", "Flutter", "Adobe XD"],
-      "bio": "Specializing in clean, minimalist SaaS interfaces.",
-    },
-    {
-      "name": "Marcus Bold",
-      "role": "Fullstack Dev",
-      "skills": ["Next.js", "Python", "AWS"],
-      "bio": "Founder of 'DevLink'. Looking for contributors.",
-    },
-  ];
-
+  int _currentIndex = 0;
   String _activeFilter = "Teams";
+
+  List<MatchCandidate> _candidates = [];
+  bool _isLoading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCandidates();
+  }
 
   @override
   void dispose() {
-    controller.dispose();
+    _swiperController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadCandidates() async {
+    debugPrint("🔄 _loadCandidates called");
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final candidates = await _matchService.getCandidates();
+      setState(() => _candidates = candidates);
+    } catch (e) {
+      setState(() => _error = e.toString().replaceAll('Exception: ', ''));
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _onSwipe(int index, CardSwiperDirection direction) async {
+    if (index >= _candidates.length) return;
+    final candidate = _candidates[index];
+
+    if (direction == CardSwiperDirection.right) {
+      final result = await _matchService.likeUser(candidate.id);
+      if (!mounted) return;
+      if (result.matched) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("🎉 It's a match with ${candidate.name}!"),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } else if (direction == CardSwiperDirection.left) {
+      await _matchService.rejectUser(candidate.id);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
-    List<Widget> cards = candidates.map((user) {
-      return DevMatchCard(
-        name: user['name'],
-        role: user['role'],
-        skills: List<String>.from(user['skills']),
-        bio: user['bio'],
-      );
-    }).toList();
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -70,45 +92,27 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
             color: theme.colorScheme.onSurface,
           ),
         ),
-        // ADDED: Filter action from previous version
         actions: [
           IconButton(
             icon: Icon(Icons.tune_rounded, color: theme.colorScheme.primary),
-            onPressed: () {
-              _showFilterSheet(context);
-            },
+            onPressed: () => _showFilterSheet(context),
           ),
           IconButton(
             icon: Icon(
               Icons.message_outlined,
               color: theme.colorScheme.primary,
             ),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => ChatListScreen()),
-              );
-            },
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => ChatListScreen()),
+            ),
           ),
           const SizedBox(width: 8),
         ],
       ),
       body: Column(
         children: [
-          Expanded(
-            child: CardSwiper(
-              controller: controller,
-              cards: cards,
-              onSwipe: (index, direction) {
-                debugPrint('Swiped card $index to ${direction.name}');
-              },
-              numberOfCardsDisplayed: 2,
-              padding: const EdgeInsets.all(24.0),
-              threshold: 50,
-            ),
-          ),
-
-          // Action Buttons (Swipe UI)
+          Expanded(child: _buildBody(theme)),
           Padding(
             padding: const EdgeInsets.only(bottom: 32.0),
             child: Row(
@@ -118,52 +122,52 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
                   theme,
                   Icons.close,
                   Colors.redAccent,
-                  () => controller.swipeLeft(),
+                  () => _swiperController.swipeLeft(),
                 ),
-                // ADDED: Middle button for quick chat
                 _circularActionButton(
                   theme,
                   Icons.chat_bubble_outline_rounded,
                   theme.colorScheme.secondary,
-                  () => print("Quick Chat Tapped"),
+                  () async {
+                    await GlobalState().clearPrefs();
+                    if (!mounted) return;
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(builder: (_) => const LoginScreen()),
+                    );
+                  },
                 ),
                 _circularActionButton(
                   theme,
                   Icons.favorite,
                   Colors.greenAccent,
-                  () => controller.swipeRight(),
+                  () => _swiperController.swipeRight(),
                 ),
               ],
             ),
           ),
         ],
       ),
-      // ADDED: Bottom Navigation Bar
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
-        onTap: (index) => {
-          setState(() => _currentIndex = index),
-          if (index == 1)
-            {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => TeamsListScreen()),
-              ),
-            }
-          else if (index == 2)
-            {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => ProjectsListScreen()),
-              ),
-            }
-          else if (index == 3)
-            {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (context) => ProfileScreen()),
-              ),
-            },
+        onTap: (index) {
+          setState(() => _currentIndex = index);
+          if (index == 1) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => TeamsListScreen()),
+            );
+          } else if (index == 2) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => ProjectsListScreen()),
+            );
+          } else if (index == 3) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => ProfileScreen()),
+            );
+          }
         },
         type: BottomNavigationBarType.fixed,
         selectedItemColor: theme.colorScheme.primary,
@@ -192,9 +196,80 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
     );
   }
 
+  Widget _buildBody(ThemeData theme) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.wifi_off_rounded,
+              size: 48,
+              color: theme.colorScheme.error,
+            ),
+            const SizedBox(height: 12),
+            Text(_error!, textAlign: TextAlign.center),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _loadCandidates,
+              icon: const Icon(Icons.refresh),
+              label: const Text("Retry"),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_candidates.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.people_outline_rounded,
+              size: 48,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(height: 12),
+            const Text("No more candidates nearby."),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _loadCandidates,
+              icon: const Icon(Icons.refresh),
+              label: const Text("Refresh"),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final cards = _candidates.map((candidate) {
+      return DevMatchCard(
+        name: candidate.name,
+        role: candidate.headline,
+        skills: candidate.sharedSkills,
+        bio: candidate.bio,
+      );
+    }).toList();
+
+    return CardSwiper(
+      controller: _swiperController,
+      cards: cards,
+      onSwipe: (index, direction) {
+        _onSwipe(index, direction);
+      },
+      numberOfCardsDisplayed: 2,
+      padding: const EdgeInsets.all(24.0),
+      threshold: 50,
+    );
+  }
+
   void _showFilterSheet(BuildContext context) {
     final theme = Theme.of(context);
-
     showModalBottomSheet(
       context: context,
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -202,9 +277,8 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (context) {
-        // StatefulBuilder allows us to update the checkmark inside the sheet
         return StatefulBuilder(
-          builder: (BuildContext context, StateSetter setSheetState) {
+          builder: (context, setSheetState) {
             return Padding(
               padding: const EdgeInsets.symmetric(
                 vertical: 24.0,
@@ -225,8 +299,7 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
                       ),
                       TextButton(
                         onPressed: () {
-                          // Apply the selected filter logic here
-                          setState(() {}); // Update main screen if needed
+                          setState(() {});
                           Navigator.pop(context);
                         },
                         child: const Text("Done"),
@@ -234,9 +307,6 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
                     ],
                   ),
                   const SizedBox(height: 16),
-
-                  // --- 1. MUTUALLY EXCLUSIVE FILTERS ---
-                  // Only ONE of these can be active at a time
                   _buildRadioFilterTile(
                     context,
                     label: "Teams",
@@ -246,7 +316,6 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
                     onTap: () => setSheetState(() => _activeFilter = "Teams"),
                   ),
                   const SizedBox(height: 12),
-
                   _buildRadioFilterTile(
                     context,
                     label: "Skills",
@@ -256,7 +325,6 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
                     onTap: () => setSheetState(() => _activeFilter = "Skills"),
                   ),
                   const SizedBox(height: 12),
-
                   _buildRadioFilterTile(
                     context,
                     label: "Projects",
@@ -266,17 +334,12 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
                     onTap: () =>
                         setSheetState(() => _activeFilter = "Projects"),
                   ),
-
                   const SizedBox(height: 24),
                   const Divider(),
                   const SizedBox(height: 12),
-
-                  // --- 2. SEPARATE MAP ROUTE ---
-                  // This is NOT a filter, it's a navigation action
                   ListTile(
                     onTap: () {
-                      Navigator.pop(context); // Close sheet
-                      // Navigate to Map
+                      Navigator.pop(context);
                       Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -319,7 +382,6 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
     );
   }
 
-  // Helper for the Radio-style tiles
   Widget _buildRadioFilterTile(
     BuildContext context, {
     required String label,
@@ -347,7 +409,7 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
         side: BorderSide(
           color: isSelected
               ? theme.colorScheme.primary
-              : theme.dividerTheme.color!,
+              : (theme.dividerTheme.color ?? Colors.grey.shade300),
           width: isSelected ? 2 : 1,
         ),
       ),

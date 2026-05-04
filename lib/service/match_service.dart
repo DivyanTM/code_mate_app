@@ -5,13 +5,11 @@ import 'package:flutter/foundation.dart';
 class MatchService {
   final ApiService _api = ApiService();
 
-  /// Fetches ranked candidates from the server.
   Future<List<MatchCandidate>> getCandidates({
     double maxDistanceKm = 100,
     int limit = 20,
   }) async {
     try {
-      // ApiService.get() uses named param 'query' (not 'queryParameters').
       final response = await _api.get(
         '/match/candidates',
         query: {'maxDistanceKm': maxDistanceKm, 'limit': limit},
@@ -26,7 +24,6 @@ class MatchService {
     }
   }
 
-  /// Like a user. Returns [MatchResult] which tells you if it's a mutual match.
   Future<MatchResult> likeUser(String targetId) async {
     try {
       final response = await _api.post(
@@ -40,7 +37,6 @@ class MatchService {
     }
   }
 
-  /// Reject / pass on a user. Silently ignores "already interacted" errors.
   Future<void> rejectUser(String targetId) async {
     try {
       await _api.post('/match/reject/$targetId', {}, authRequired: true);
