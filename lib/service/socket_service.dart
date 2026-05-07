@@ -20,7 +20,7 @@ class SocketService {
     if (token == null) return;
 
     _socket = IO.io(
-      APIConstants.DEV_BASE_URL,
+      APIConstants.PRODUCTION_BASE_URL,
       IO.OptionBuilder()
           .setTransports(['websocket'])
           .disableAutoConnect()

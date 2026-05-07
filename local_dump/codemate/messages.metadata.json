@@ -1,0 +1,1 @@
+{"indexes":[{"v":{"$numberInt":"2"},"key":{"_id":{"$numberInt":"1"}},"name":"_id_"},{"v":{"$numberInt":"2"},"key":{"roomId":{"$numberInt":"1"},"createdAt":{"$numberInt":"-1"}},"name":"roomId_1_createdAt_-1"}],"uuid":"500f3c09308d436cab713fd93d5c1748","collectionName":"messages","type":"collection"}
