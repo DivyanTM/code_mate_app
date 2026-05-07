@@ -1,6 +1,9 @@
 import 'package:code_mate/data/models/match_model.dart';
 import 'package:code_mate/data/sources/global_state.dart';
+import 'package:code_mate/service/chat_api_service.dart';
 import 'package:code_mate/service/match_service.dart';
+import 'package:code_mate/service/socket_service.dart';
+import 'package:code_mate/ui/pages/chat_detail_screen.dart';
 import 'package:code_mate/ui/pages/chat_list_screen.dart';
 import 'package:code_mate/ui/pages/login_page.dart';
 import 'package:code_mate/ui/pages/nearby_results_screen.dart';
@@ -22,9 +25,9 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
   final CardSwiperController _swiperController = CardSwiperController();
   final MatchService _matchService = MatchService();
 
-  int _currentIndex = 0;
-  String _activeFilter = "Teams";
+  int _topIndex = 0;
 
+  String _activeFilter = "Teams";
   List<MatchCandidate> _candidates = [];
   bool _isLoading = true;
   String? _error;
@@ -42,15 +45,26 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
   }
 
   Future<void> _loadCandidates() async {
-    debugPrint("🔄 _loadCandidates called");
     setState(() {
       _isLoading = true;
       _error = null;
+      _topIndex = 0;
     });
 
     try {
       final candidates = await _matchService.getCandidates();
-      setState(() => _candidates = candidates);
+
+      // DEBUG — print every candidate in order
+      for (int i = 0; i < candidates.length; i++) {
+        debugPrint(
+          'CANDIDATE[$i] id=${candidates[i].id} name=${candidates[i].name}',
+        );
+      }
+
+      setState(() {
+        _candidates = candidates;
+        _topIndex = 0;
+      });
     } catch (e) {
       setState(() => _error = e.toString().replaceAll('Exception: ', ''));
     } finally {
@@ -58,23 +72,101 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
     }
   }
 
+  Future<void> _startDM(String targetUserId, String userName) async {
+    try {
+      final room = await ChatApiService().openDM(targetUserId);
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ChatDetailScreen(
+            roomId: room.id,
+            title: userName,
+            isChannel: false,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))),
+        );
+      }
+    }
+  }
+
   Future<void> _onSwipe(int index, CardSwiperDirection direction) async {
+    // DEBUG — what did the swiper report?
+    debugPrint(
+      'SWIPE: index=$index direction=$direction '
+      'candidate=${index < _candidates.length ? _candidates[index].name : "OUT_OF_RANGE"}',
+    );
+
     if (index >= _candidates.length) return;
-    final candidate = _candidates[index];
+
+    final swipedCandidate = _candidates[index];
+
+    setState(() {
+      _topIndex = index + 1;
+    });
+
+    debugPrint(
+      'AFTER SWIPE: _topIndex=$_topIndex '
+      'topCandidate=${_topCandidate?.name ?? "null"}',
+    );
 
     if (direction == CardSwiperDirection.right) {
-      final result = await _matchService.likeUser(candidate.id);
+      final result = await _matchService.likeUser(swipedCandidate.id);
       if (!mounted) return;
       if (result.matched) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text("🎉 It's a match with ${candidate.name}!"),
+            content: Text("🎉 It's a match with ${swipedCandidate.name}!"),
             backgroundColor: Colors.green,
+            action: SnackBarAction(
+              label: "Message",
+              textColor: Colors.white,
+              onPressed: () =>
+                  _startDM(swipedCandidate.id, swipedCandidate.name),
+            ),
           ),
         );
       }
     } else if (direction == CardSwiperDirection.left) {
-      await _matchService.rejectUser(candidate.id);
+      await _matchService.rejectUser(swipedCandidate.id);
+    }
+  }
+
+  MatchCandidate? get _topCandidate =>
+      _topIndex < _candidates.length ? _candidates[_topIndex] : null;
+
+  Future<void> _handleLogout() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Logout'),
+        content: const Text('Are you sure you want to log out of CodeMate?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Logout', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await GlobalState().clearPrefs();
+      SocketService().disconnect();
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
     }
   }
 
@@ -85,12 +177,9 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text(
+        title: const Text(
           "Discover Talent",
-          style: TextStyle(
-            fontWeight: FontWeight.w800,
-            color: theme.colorScheme.onSurface,
-          ),
+          style: TextStyle(fontWeight: FontWeight.w800),
         ),
         actions: [
           IconButton(
@@ -104,8 +193,12 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
             ),
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => ChatListScreen()),
+              MaterialPageRoute(builder: (_) => const ChatListScreen()),
             ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.logout_rounded, color: Colors.redAccent),
+            onPressed: _handleLogout,
           ),
           const SizedBox(width: 8),
         ],
@@ -128,13 +221,23 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
                   theme,
                   Icons.chat_bubble_outline_rounded,
                   theme.colorScheme.secondary,
-                  () async {
-                    await GlobalState().clearPrefs();
-                    if (!mounted) return;
-                    Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  () {
+                    final candidate = _topCandidate;
+                    // DEBUG — what does the message button think is on top?
+                    debugPrint(
+                      'MESSAGE BTN: _topIndex=$_topIndex '
+                      'candidate=${candidate?.name ?? "null"} '
+                      'id=${candidate?.id ?? "null"}',
                     );
+                    if (candidate != null) {
+                      _startDM(candidate.id, candidate.name);
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('No more candidates nearby.'),
+                        ),
+                      );
+                    }
                   },
                 ),
                 _circularActionButton(
@@ -149,31 +252,26 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
         ],
       ),
       bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
+        currentIndex: 0,
         onTap: (index) {
-          setState(() => _currentIndex = index);
           if (index == 1) {
             Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => TeamsListScreen()),
+              MaterialPageRoute(builder: (_) => const TeamsListScreen()),
             );
           } else if (index == 2) {
             Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => ProjectsListScreen()),
+              MaterialPageRoute(builder: (_) => const ProjectsListScreen()),
             );
           } else if (index == 3) {
             Navigator.pushReplacement(
               context,
-              MaterialPageRoute(builder: (_) => ProfileScreen()),
+              MaterialPageRoute(builder: (_) => const ProfileScreen()),
             );
           }
         },
         type: BottomNavigationBarType.fixed,
-        selectedItemColor: theme.colorScheme.primary,
-        unselectedItemColor: theme.colorScheme.onSurface.withOpacity(0.4),
-        showSelectedLabels: true,
-        showUnselectedLabels: true,
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.explore_rounded),
@@ -197,27 +295,20 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
   }
 
   Widget _buildBody(ThemeData theme) {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
 
     if (_error != null) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.wifi_off_rounded,
-              size: 48,
-              color: theme.colorScheme.error,
-            ),
+            const Icon(Icons.wifi_off_rounded, size: 48, color: Colors.red),
             const SizedBox(height: 12),
-            Text(_error!, textAlign: TextAlign.center),
+            Text(_error!),
             const SizedBox(height: 16),
-            FilledButton.icon(
+            FilledButton(
               onPressed: _loadCandidates,
-              icon: const Icon(Icons.refresh),
-              label: const Text("Retry"),
+              child: const Text("Retry"),
             ),
           ],
         ),
@@ -229,39 +320,34 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.people_outline_rounded,
-              size: 48,
-              color: theme.colorScheme.primary,
-            ),
+            const Icon(Icons.people_outline_rounded, size: 48),
             const SizedBox(height: 12),
             const Text("No more candidates nearby."),
             const SizedBox(height: 16),
-            FilledButton.icon(
+            FilledButton(
               onPressed: _loadCandidates,
-              icon: const Icon(Icons.refresh),
-              label: const Text("Refresh"),
+              child: const Text("Refresh"),
             ),
           ],
         ),
       );
     }
 
-    final cards = _candidates.map((candidate) {
-      return DevMatchCard(
-        name: candidate.name,
-        role: candidate.headline,
-        skills: candidate.sharedSkills,
-        bio: candidate.bio,
-      );
-    }).toList();
-
     return CardSwiper(
       controller: _swiperController,
-      cards: cards,
-      onSwipe: (index, direction) {
-        _onSwipe(index, direction);
-      },
+      cards: _candidates
+          .map<Widget>(
+            (candidate) => DevMatchCard(
+              name: candidate.name,
+              role: candidate.headline,
+              skills: candidate.sharedSkills,
+              bio: candidate.bio,
+              profilePicture: candidate.profilePicture,
+              distanceKm: candidate.distanceKm,
+            ),
+          )
+          .toList(),
+      onSwipe: _onSwipe,
       numberOfCardsDisplayed: 2,
       padding: const EdgeInsets.all(24.0),
       threshold: 50,
@@ -272,113 +358,71 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
     final theme = Theme.of(context);
     showModalBottomSheet(
       context: context,
-      backgroundColor: theme.scaffoldBackgroundColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(
-                vertical: 24.0,
-                horizontal: 24.0,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                "Discovery Filter",
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        "Discovery Filter",
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: () {
-                          setState(() {});
-                          Navigator.pop(context);
-                        },
-                        child: const Text("Done"),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  _buildRadioFilterTile(
-                    context,
-                    label: "Teams",
-                    icon: Icons.group_work_rounded,
-                    color: Colors.blueAccent,
-                    isSelected: _activeFilter == "Teams",
-                    onTap: () => setSheetState(() => _activeFilter = "Teams"),
-                  ),
-                  const SizedBox(height: 12),
-                  _buildRadioFilterTile(
-                    context,
-                    label: "Skills",
-                    icon: Icons.bolt_rounded,
-                    color: Colors.orangeAccent,
-                    isSelected: _activeFilter == "Skills",
-                    onTap: () => setSheetState(() => _activeFilter = "Skills"),
-                  ),
-                  const SizedBox(height: 12),
-                  _buildRadioFilterTile(
-                    context,
-                    label: "Projects",
-                    icon: Icons.rocket_launch_rounded,
-                    color: Colors.purpleAccent,
-                    isSelected: _activeFilter == "Projects",
-                    onTap: () =>
-                        setSheetState(() => _activeFilter = "Projects"),
-                  ),
-                  const SizedBox(height: 24),
-                  const Divider(),
-                  const SizedBox(height: 12),
-                  ListTile(
-                    onTap: () {
-                      Navigator.pop(context);
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              NearbyMapScreen(filterType: _activeFilter),
-                        ),
-                      );
-                    },
-                    leading: Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.green.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(
-                        Icons.map_outlined,
-                        color: Colors.green,
-                      ),
-                    ),
-                    title: const Text(
-                      "View on Map",
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    trailing: const Icon(
-                      Icons.arrow_forward_ios_rounded,
-                      size: 16,
-                      color: Colors.grey,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      side: BorderSide(color: Colors.green.withOpacity(0.5)),
-                    ),
-                  ),
-                ],
+              const SizedBox(height: 16),
+              _buildRadioFilterTile(
+                context,
+                label: "Teams",
+                icon: Icons.group_work_rounded,
+                color: Colors.blueAccent,
+                isSelected: _activeFilter == "Teams",
+                onTap: () => setSheetState(() => _activeFilter = "Teams"),
               ),
-            );
-          },
-        );
-      },
+              const SizedBox(height: 12),
+              _buildRadioFilterTile(
+                context,
+                label: "Skills",
+                icon: Icons.bolt_rounded,
+                color: Colors.orangeAccent,
+                isSelected: _activeFilter == "Skills",
+                onTap: () => setSheetState(() => _activeFilter = "Skills"),
+              ),
+              const SizedBox(height: 12),
+              _buildRadioFilterTile(
+                context,
+                label: "Projects",
+                icon: Icons.rocket_launch_rounded,
+                color: Colors.purpleAccent,
+                isSelected: _activeFilter == "Projects",
+                onTap: () => setSheetState(() => _activeFilter = "Projects"),
+              ),
+              const SizedBox(height: 24),
+              ListTile(
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          NearbyMapScreen(filterType: _activeFilter),
+                    ),
+                  );
+                },
+                leading: const Icon(Icons.map_outlined, color: Colors.green),
+                title: const Text(
+                  "View on Map",
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 16),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -390,7 +434,6 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
     required bool isSelected,
     required VoidCallback onTap,
   }) {
-    final theme = Theme.of(context);
     return ListTile(
       onTap: onTap,
       leading: Icon(icon, color: isSelected ? color : Colors.grey),
@@ -398,24 +441,19 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
         label,
         style: TextStyle(
           fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-          color: isSelected ? theme.colorScheme.onSurface : Colors.grey,
         ),
       ),
-      trailing: isSelected
-          ? Icon(Icons.check_circle_rounded, color: theme.colorScheme.primary)
-          : const Icon(Icons.circle_outlined, color: Colors.grey),
+      trailing: Icon(
+        isSelected ? Icons.check_circle_rounded : Icons.circle_outlined,
+        color: isSelected ? color : Colors.grey,
+      ),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: isSelected
-              ? theme.colorScheme.primary
-              : (theme.dividerTheme.color ?? Colors.grey.shade300),
+          color: isSelected ? color : Colors.grey.shade300,
           width: isSelected ? 2 : 1,
         ),
       ),
-      tileColor: isSelected
-          ? theme.colorScheme.primary.withOpacity(0.05)
-          : null,
     );
   }
 
@@ -433,7 +471,6 @@ class _DiscoveryHomeScreenState extends State<DiscoveryHomeScreen> {
         decoration: BoxDecoration(
           color: color,
           shape: BoxShape.circle,
-          border: Border.all(color: Colors.black.withOpacity(0.2), width: 1),
           boxShadow: [
             BoxShadow(
               color: color.withOpacity(0.15),

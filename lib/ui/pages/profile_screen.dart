@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:code_mate/data/models/user_model.dart';
 import 'package:code_mate/data/sources/global_state.dart';
+import 'package:code_mate/service/socket_service.dart';
 import 'package:code_mate/service/user_service.dart';
 import 'package:code_mate/ui/pages/edit_profile_screen.dart';
 import 'package:code_mate/ui/pages/login_page.dart';
@@ -235,6 +236,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           icon: const Icon(Icons.logout_rounded, color: Colors.white),
           onPressed: () {
             GlobalState().clearPrefs();
+            SocketService().disconnect();
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(builder: (context) => const LoginScreen()),

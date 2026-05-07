@@ -1,6 +1,7 @@
 import 'package:code_mate/core/utils/api.dart';
 import 'package:code_mate/data/models/user_model.dart';
 import 'package:code_mate/data/sources/global_state.dart';
+import 'package:code_mate/service/socket_service.dart';
 import 'package:flutter/foundation.dart';
 
 class AuthService {
@@ -99,6 +100,7 @@ class AuthService {
   }
 
   Future<void> logout() async {
+    SocketService().disconnect();
     await GlobalState().clearPrefs();
   }
 }

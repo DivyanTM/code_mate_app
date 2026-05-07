@@ -1,6 +1,8 @@
 import 'package:code_mate/data/models/team_member.dart';
 import 'package:code_mate/data/models/team_model.dart';
 import 'package:code_mate/service/team_service.dart';
+import 'package:code_mate/service/chat_api_service.dart';
+import 'package:code_mate/ui/pages/chat_detail_screen.dart';
 import 'package:flutter/material.dart';
 
 import 'invite_members_screen.dart';
@@ -108,6 +110,39 @@ class _TeamDashboardScreenState extends State<TeamDashboardScreen> {
       appBar: AppBar(
         title: Text(widget.team.name),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.chat_bubble_outline),
+            onPressed: () async {
+              try {
+                final room = await ChatApiService().openTeamRoom(
+                  widget.team.id,
+                );
+                if (!context.mounted) return;
+
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ChatDetailScreen(
+                      roomId: room.id,
+                      title: widget.team.name,
+                      isChannel: true,
+                      subtitle: 'Team',
+                    ),
+                  ),
+                );
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Failed to open chat: ${e.toString().replaceAll('Exception: ', '')}',
+                      ),
+                    ),
+                  );
+                }
+              }
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.person_add),
             onPressed: () async {

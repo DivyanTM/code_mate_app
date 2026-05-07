@@ -54,7 +54,7 @@ class DevMatchCard extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // ── Background: profile picture or gradient placeholder ──────────
+            // Background: profile picture or gradient placeholder
             if (image != null)
               Image(image: image, fit: BoxFit.cover)
             else
@@ -81,7 +81,7 @@ class DevMatchCard extends StatelessWidget {
                 ),
               ),
 
-            // ── Distance badge (top-right) ───────────────────────────────────
+            // Distance badge (top-right)
             if (distanceKm != null)
               Positioned(
                 top: 16,
@@ -117,7 +117,7 @@ class DevMatchCard extends StatelessWidget {
                 ),
               ),
 
-            // ── Bottom info panel ────────────────────────────────────────────
+            // Bottom info panel
             Positioned(
               bottom: 0,
               left: 0,
@@ -158,7 +158,7 @@ class DevMatchCard extends StatelessWidget {
                         spacing: 8,
                         runSpacing: 6,
                         children: skills
-                            .take(5) // cap at 5 chips so card isn't crowded
+                            .take(5)
                             .map((s) => _buildSkillChip(theme, s))
                             .toList(),
                       ),

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:code_mate/data/models/project_model.dart';
 import 'package:code_mate/service/project_service.dart';
+import 'package:code_mate/service/chat_api_service.dart';
+import 'package:code_mate/ui/pages/chat_detail_screen.dart';
 import 'project_settings_screen.dart';
 
 class ProjectDashboardScreen extends StatefulWidget {
@@ -46,6 +48,39 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
       appBar: AppBar(
         title: Text(widget.project.title),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.chat_bubble_outline),
+            onPressed: () async {
+              try {
+                final room = await ChatApiService().openProjectRoom(
+                  widget.project.id,
+                );
+                if (!context.mounted) return;
+
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ChatDetailScreen(
+                      roomId: room.id,
+                      title: widget.project.title,
+                      isChannel: true,
+                      subtitle: 'Project',
+                    ),
+                  ),
+                );
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Failed to open chat: ${e.toString().replaceAll('Exception: ', '')}',
+                      ),
+                    ),
+                  );
+                }
+              }
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             onPressed: () => Navigator.push(

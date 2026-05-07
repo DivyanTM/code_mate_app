@@ -1,4 +1,5 @@
 import 'package:code_mate/service/auth_service.dart';
+import 'package:code_mate/service/socket_service.dart';
 import 'package:code_mate/ui/pages/home_screen.dart';
 import 'package:code_mate/ui/pages/register_page.dart';
 import 'package:code_mate/ui/widgets/custom_input_field.dart';
@@ -51,6 +52,7 @@ class _LoginScreenState extends State<LoginScreen> {
     ).showSnackBar(SnackBar(content: Text(message)));
 
     if (success) {
+      SocketService().connect();
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const DiscoveryHomeScreen()),
